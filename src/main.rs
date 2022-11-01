@@ -6,10 +6,10 @@ type Frames = Vec<Option<i64>>;
 type Data = BTreeMap<String, Frames>;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let rdr = read_with_path("./data/sample.csv")?;
+    let mut rdr = read_with_path("./data/sample.csv")?;
     //let rdr = read_with_bytes()?;
 
-    let data = parse(rdr)?;
+    let data = parse(&mut rdr)?;
 
     for (header, frame_data) in data {
         println!("[{}]", header);
@@ -46,22 +46,20 @@ fn read_with_stdin() -> Result<csv::Reader<Stdin>, Box<dyn Error>> {
     Ok(rdr)
 }
 
-fn parse<R: std::io::Read>(rdr: csv::Reader<R>) -> Result<Data, Box<dyn Error>> {
+fn parse<R: std::io::Read>(rdr: &mut csv::Reader<R>) -> Result<Data, Box<dyn Error>> {
     // rdrからheadersとrecordsを生成するには可変参照が必要だが、rdr: &mutを引数にすると
     // headers()とrecords()で複数の可変参照が存在することになる。
     // &mutだとコンパイル時に可変参照のルールチェックがされるが、RefCellならば実行時にチェックされる。
     // RefCell使いつつ、複数の可変参照が無いように適切にdropさせれば実現可能。
     // https://doc.rust-jp.rs/book-ja/ch15-05-interior-mutability.html
 
-    let rdr = RefCell::new(rdr);
 
     let mut map: Data = Data::new();
     let mut index_to_key = vec![];
 
     {
         // RefCellでbollow_mutしたrdrの可変参照をこのコードブロックでdropさせる
-        let mut binding = rdr.borrow_mut();
-        let headers = binding.headers()?;
+        let headers = rdr.headers()?;
         for header in headers.iter().map(|e| e.to_string()) {
             map.insert(header.clone(), Vec::new());
             index_to_key.push(header.clone());
@@ -70,7 +68,7 @@ fn parse<R: std::io::Read>(rdr: csv::Reader<R>) -> Result<Data, Box<dyn Error>> 
 
     // RefCellを使えば、実行時に可変参照(RefMut<T>)の参照カウンタがゼロであればOK。
     // 実行時にも可変参照の参照カウンタがゼロじゃないならばpanic発動する。
-    for res in rdr.borrow_mut().records() {
+    for res in rdr.records() {
         let records = res?;
         for (index, record) in records.iter().enumerate() {
             let res = record.parse::<Type>();
