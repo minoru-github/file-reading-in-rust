@@ -9,7 +9,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut rdr = read_with_path("./data/sample.csv")?;
     //let rdr = read_with_bytes()?;
 
-    let data = parse(&mut rdr)?;
+    let mut data = Data::new();
+    parse(&mut rdr, &mut data)?;
 
     for (header, frame_data) in data {
         println!("[{}]", header);
@@ -46,29 +47,32 @@ fn read_with_stdin() -> Result<csv::Reader<Stdin>, Box<dyn Error>> {
     Ok(rdr)
 }
 
-fn parse<R: std::io::Read>(rdr: &mut csv::Reader<R>) -> Result<Data, Box<dyn Error>> {
+fn parse<R: std::io::Read>(
+    rdr: &mut csv::Reader<R>,
+    data: &mut Data,
+) -> Result<(), Box<dyn Error>> {
     // rdrからheadersとrecordsを生成するには可変参照が必要だが、rdr: &mutを引数にすると
     // headers()とrecords()で複数の可変参照が存在することになる。
     // &mutだとコンパイル時に可変参照のルールチェックがされるが、RefCellならば実行時にチェックされる。
-    // RefCell使いつつ、複数の可変参照が無いように適切にdropさせれば実現可能。
+    // RefCell使いつつ、複数の可変参照が無いように適切にdropさせれば複数の可変参照が同じ処理ブロックに存在可能。
     // https://doc.rust-jp.rs/book-ja/ch15-05-interior-mutability.html
 
+    let rdr = RefCell::new(rdr);
 
-    let mut map: Data = Data::new();
     let mut index_to_key = vec![];
 
-    {
-        // RefCellでbollow_mutしたrdrの可変参照をこのコードブロックでdropさせる
-        let headers = rdr.headers()?;
-        for header in headers.iter().map(|e| e.to_string()) {
-            map.insert(header.clone(), Vec::new());
-            index_to_key.push(header.clone());
-        }
+    let mut binding = rdr.borrow_mut();
+    let headers = binding.headers()?;
+    for header in headers.iter().map(|e| e.to_string()) {
+        data.insert(header.clone(), Vec::new());
+        index_to_key.push(header.clone());
     }
+    // RefCellでbollow_mutしたrdrの可変参照を強制的にdropさせる
+    drop(binding);
 
     // RefCellを使えば、実行時に可変参照(RefMut<T>)の参照カウンタがゼロであればOK。
     // 実行時にも可変参照の参照カウンタがゼロじゃないならばpanic発動する。
-    for res in rdr.records() {
+    for res in rdr.borrow_mut().records() {
         let records = res?;
         for (index, record) in records.iter().enumerate() {
             let res = record.parse::<Type>();
@@ -78,8 +82,8 @@ fn parse<R: std::io::Read>(rdr: &mut csv::Reader<R>) -> Result<Data, Box<dyn Err
                 None
             };
             let key = index_to_key[index].to_string();
-            map.entry(key).and_modify(|f| f.push(record));
+            data.entry(key).and_modify(|f| f.push(record));
         }
     }
-    Ok(map)
+    Ok(())
 }
