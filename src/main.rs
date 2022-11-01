@@ -9,7 +9,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let rdr = read_with_path("./data/sample.csv")?;
     //let rdr = read_with_bytes()?;
 
-    let rdr = RefCell::new(rdr);
     let data = parse(rdr)?;
 
     for (header, frame_data) in data {
@@ -47,12 +46,14 @@ fn read_with_stdin() -> Result<csv::Reader<Stdin>, Box<dyn Error>> {
     Ok(rdr)
 }
 
-fn parse<R: std::io::Read>(rdr: RefCell<csv::Reader<R>>) -> Result<Data, Box<dyn Error>> {
+fn parse<R: std::io::Read>(rdr: csv::Reader<R>) -> Result<Data, Box<dyn Error>> {
     // rdrからheadersとrecordsを生成するには可変参照が必要だが、rdr: &mutを引数にすると
     // headers()とrecords()で複数の可変参照が存在することになる。
     // &mutだとコンパイル時に可変参照のルールチェックがされるが、RefCellならば実行時にチェックされる。
     // RefCell使いつつ、複数の可変参照が無いように適切にdropさせれば実現可能。
     // https://doc.rust-jp.rs/book-ja/ch15-05-interior-mutability.html
+
+    let rdr = RefCell::new(rdr);
 
     let mut map: Data = Data::new();
     let mut index_to_key = vec![];
